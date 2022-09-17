@@ -1,5 +1,9 @@
 # Album+ for Nintendo Switch
-![Album+](/icon.jpg?w=32&h=32)
+
+<p align="center">
+  <img src="/icon.jpg" alt="Album+ Logo" width="32" height="32"/>
+</p>
+
 An easy to use Album dumper homebrew for Nintendo Switch.
 
 
