@@ -1,0 +1,256 @@
+// Include the most common headers from the C standard library
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <sys/stat.h>
+
+// Include the main libnx system header, for Switch development
+#include <switch.h>
+
+
+// Include local
+#include "utils.h"
+#include "console.h"
+
+
+#define printr(c) {res = c; print("SUCS %X\t| DESC %X\t| MODL %X\t| VAL %X\t for %s\n", R_SUCCEEDED(res), R_DESCRIPTION(res), R_MODULE(res), R_VALUE(res), #c);}
+   
+typedef enum {
+    SectorMenu       = 0b00001,
+    SectorScreenshot = 0b00010,
+    SectorMovie      = 0b00100,
+    SectorBoth       = 0b00110,
+    SectorExit       = 0b01000,
+    SectorError      = 0b10000,
+} Sector;
+
+Sector current_sector = SectorMenu;
+
+Result res = 0;
+PadState pad;
+
+u64 kDown = 0;
+
+const char * const bg  = CONSOLE_BG(51, 51, 51);
+const char * const sel = CONSOLE_BG(60, 60, 60);
+
+
+void sector_menu() {
+
+
+    time_t r = time(NULL), X;
+    struct tm tm;
+    
+    getAlbum();
+
+    X=difftime(time(NULL), r);
+    tm = *localtime(&X);
+    print("Elapsed time: %02d:%02d:%02d %ld %ld ***\n", tm.tm_hour, tm.tm_min, tm.tm_sec, r, X);
+
+    static Sector op = SectorScreenshot;
+
+    if (kDown & HidNpadButton_AnyUp) op -= 2;
+    else if (kDown & HidNpadButton_AnyDown) op += 2;
+
+    if (op > SectorExit) op = SectorScreenshot;
+    else if (op < SectorScreenshot) op = SectorExit;
+
+
+    if (kDown & HidNpadButton_Plus) current_sector = SectorExit;
+    if (kDown & HidNpadButton_A)    current_sector = op;
+    
+
+    cprint(bg, "Main Menu\n - Nand (%smounted): %lu screens & %lu movies\n - SD card (%smounted): %lu screens & %lu movies\n\n",
+           mount[0] ? "": "un", filesNandSs, filesNandMv,
+           mount[1] ? "": "un", filesSdSs,   filesSdMv);
+
+    cprint((op == SectorScreenshot) ? sel: bg, "%c  Copy screenshots on sdcard                                                  \n", (op == SectorScreenshot) ? '\x10': ' ');
+    cprint((op == SectorMovie)      ? sel: bg, "%c  Copy movies on sdcard                                                       \n", (op == SectorMovie)      ? '\x10': ' ');
+    cprint((op == SectorBoth)       ? sel: bg, "%c  Copy screenshot & movies on sdcard                                          \n", (op == SectorBoth)       ? '\x10': ' ');
+    cprint((op == SectorExit)       ? sel: bg, "%c  Exit                                                                        \n", (op == SectorExit)       ? '\x10': ' ');
+    cprint(bg, "");
+    X=difftime(time(NULL), r);
+    tm = *localtime(&X);
+    print("Elapsed time: %02d:%02d:%02d %ld %ld ###\n", tm.tm_hour, tm.tm_min, tm.tm_sec, r, X);
+
+}
+
+
+void sector_dump() {
+    static bool init = true;
+    static CapsAlbumEntry * entryNandSs, * entrySdSs,
+                          * entryNandMv, * entrySdMv, *entries;
+
+    static u64 szNandSs, szSdSs, szAll,
+               szNandMv, szSdMv, seek, size;
+
+    static u8 section;
+    static time_t start_t, elapsed_t;
+    struct tm tm = {0};
+        
+    if (init) {
+
+        getAlbum();
+
+        entries = malloc(sizeof(CapsAlbumEntry) * (size = (current_sector & SectorScreenshot ? filesNandSs + filesSdSs: 0) +
+                                                          (current_sector & SectorMovie      ? filesNandMv + filesSdMv: 0)));
+
+        
+        for (u64 cumsize = 0, sz = 0, i = 0; i < 4; i++) if (files_count[i]) {
+            capsaGetAlbumFileListEx0((CapsAlbumStorage)(i >> 1), 1 + (i & 1), &sz, entries + cumsize, files_count[i]);
+            cumsize += sz;
+        }
+
+        if (current_sector & SectorScreenshot) {
+
+            entrySdSs = malloc(sizeof(CapsAlbumEntry) * filesSdSs + filesNandSs);
+
+            if (!entrySdSs) {
+                current_sector = SectorError;
+                return;
+            }
+
+            entryNandSs = entrySdSs + filesSdSs;
+            capsaGetAlbumFileListEx0(CapsAlbumStorage_Sd,   CapsAlbumFileContentsFlag_ScreenShot, &szSdSs,   entrySdSs,   filesSdSs);
+            capsaGetAlbumFileListEx0(CapsAlbumStorage_Nand, CapsAlbumFileContentsFlag_ScreenShot, &szNandSs, entryNandSs, filesNandSs);
+
+        } else entrySdSs = entryNandSs = NULL, szSdSs = szNandSs = 0;
+
+        if (current_sector & SectorMovie) {
+
+            entrySdMv = malloc(sizeof(CapsAlbumEntry) * file_count_sd_mv + file_count_nand_mv);
+
+            if (!entrySdMv) {
+                if (current_sector & SectorScreenshot) free(entrySdSs);
+                current_sector = SectorError;
+                return;
+            }
+
+            entryNandMv = entrySdMv + file_count_sd_mv;
+            capsaGetAlbumFileListEx0(CapsAlbumStorage_Sd,   CapsAlbumFileContentsFlag_Movie, &szSdMv,   entrySdMv,   file_count_sd_mv);
+            capsaGetAlbumFileListEx0(CapsAlbumStorage_Nand, CapsAlbumFileContentsFlag_Movie, &szNandMv, entryNandMv, file_count_nand_mv);
+
+        } else entrySdMv = entryNandMv = NULL, szSdMv = szNandMv = 0;
+
+        szAll = szSdSs + szNandSs + szSdMv + szNandMv;
+        init = false;
+        section = 0;
+        seek = 0;
+
+        print("Dumping... Press B to abort\nElapsed time: 00:00:00                0 / %lu files \n\n\n", szAll);
+        progressbar(68, 5, 0, 1);
+        
+        start_t = time(NULL);
+        elapsed_t = 0;
+        tm = *localtime(&elapsed_t);
+
+    } else {
+
+        if (section == 0) { // DUMP
+
+            if (kDown & HidNpadButton_B) section = 4;
+            
+            else if (seek < szAll) {
+
+                print("Dumping... Press B to abort\nElapsed time: %02d:%02d:%02d                %lu / %lu files \n\n", tm.tm_hour, tm.tm_min, tm.tm_sec, seek + 1, szAll);
+                
+                if (seek < szSdSs + szNandSs) {
+                    if (!dump_file(entrySdSs[seek].file_id)) section = 3;
+                } else {
+                    if (!dump_file(entrySdMv[seek - szSdSs + szNandSs].file_id)) section = 3;
+                }
+
+                progressbar(68, 5, seek + 1, szAll);
+                seek++;
+            } else section++;
+
+            elapsed_t = difftime(time(NULL), start_t);
+            tm = *localtime(&elapsed_t);
+
+        } else if (section == 1) { // FINISH
+            print("\nDumping finished in %02d:%02d:%02d          %lu / %lu files \n\n\n", tm.tm_hour, tm.tm_min, tm.tm_sec, szAll, szAll);
+            progressbar(68, 5, 1, 1);
+            print("\nPress any key to continue...");
+            if (kDown) section = 2;
+
+        } else if (section == 3) { // ERROR
+            tm = *localtime(&elapsed_t);
+            print("An error occured at %02d:%02d:%02d (sdcard may be full ?)\n", tm.tm_hour, tm.tm_min, tm.tm_sec);
+            progressbar(68, 5, seek, szSdSs + szNandSs + szSdMv + szNandMv);
+            print("\nPress any key to continue...");
+            if (kDown) section = 2;
+
+        } else if (section == 4) { // ABORT
+            tm = *localtime(&elapsed_t);
+            print("Dump aborted at %02d:%02d:%02d\n", tm.tm_hour, tm.tm_min, tm.tm_sec);
+            progressbar(68, 5, seek, szSdSs + szNandSs + szSdMv + szNandMv);
+            print("\nPress any key to continue...");
+            if (kDown) section = 2;
+        }
+        
+        if (section == 2) { // EXIT
+            if (entrySdSs) {
+                free(entrySdSs);
+                entrySdSs = NULL;
+            }
+            if (entrySdMv) {
+                free(entrySdMv);
+                entrySdMv = NULL;
+            }
+            init = true;
+            current_sector = SectorMenu;
+        }
+    }
+}
+
+/*            print("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD %lu %lu\n", szSdSs, file_count_sd_ss);
+            for (u64 i = 10000000; i>0;i--) if (!(i % 200000)) {
+                print("|");
+                consoleUpdate(NULL);
+            }*/
+int main(int argc, char* argv[]) {
+    pc = consoleInit(NULL);
+    
+    capsaInitialize();
+
+    //Nintendo/Album/yyyy/mm/dd/.jpg|.mp4
+
+    // Main loop
+    
+    capsaResetAlbumMountStatus(CapsAlbumStorage_Nand);
+    capsaResetAlbumMountStatus(CapsAlbumStorage_Sd);
+
+    reset_bg();
+    
+    time_t r = time(NULL), X;
+    struct tm tm;
+    
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&pad);
+    u8 FC = 0;
+                
+    while (appletMainLoop() && current_sector != SectorExit) {
+        padUpdate(&pad);
+        consoleClear();
+        X=difftime(time(NULL), r);
+        tm = *localtime(&X);
+        print("Elapsed time: %02d:%02d:%02d %ld %ld  %hhu\n", tm.tm_hour, tm.tm_min, tm.tm_sec, r, X, ++FC);
+
+        kDown = padGetButtonsDown(&pad);
+        print("KEY %lX %lX\n", kDown, padGetButtons(&pad));
+
+        switch (current_sector) {
+            case SectorMenu: { sector_menu(); break; }
+            case SectorExit: break;
+            default: sector_dump();
+        }
+            
+        consoleUpdate(NULL);
+    }
+
+    consoleExit(NULL);
+    capsaExit();
+    return 0;
+}
