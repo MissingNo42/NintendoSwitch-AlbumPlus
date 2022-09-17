@@ -1,3 +1,7 @@
+*.log
+*.nacp
+*.nro
+
 # Prerequisites
 *.d
 

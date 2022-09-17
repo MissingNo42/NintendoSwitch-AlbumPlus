@@ -1,0 +1,17 @@
+{
+	"files.associations": {
+		"dirent.h": "c",
+		"cstdio": "c",
+		"time.h": "c",
+		"string.h": "c",
+		"stdint.h": "c",
+		"stdbool.h": "c",
+		"stdlib.h": "c",
+		"stdio.h": "c",
+		"switch.h": "c",
+		"album_la.h": "c",
+		"capsc.h": "c",
+		"main.h": "c",
+		"utils.h": "c"
+	}
+}
