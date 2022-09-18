@@ -1,10 +1,8 @@
 # Album+ for Nintendo Switch
 
-<p align="center">
-  <img src="/icon.jpg" alt="Album+ Logo" width="32" height="32"/>
+<p>
+An easy to use Album dumper homebrew for Nintendo Switch. <img src="/icon.jpg" alt="Album+ Logo" width="32" height="32"/>
 </p>
-
-An easy to use Album dumper homebrew for Nintendo Switch.
 
 
 ## Install
@@ -29,6 +27,7 @@ Where:
 - `HHMMSS` is the hour, minutes and seconds,
 - `II` is the ID of the file, used to distinguish files with the same date and TitleID,
 - `<TitleID>` is the TitleID of game which the screenshot/movie come from: `0100XXXXXXXXXXXX`
+
 ![Menu](/.screenshots/menu.jpg)
 
 On the dump screen, you can see the number of dumped files, the number of files to dump, the filename of the file which is currently being dumped and the elapsed time.
